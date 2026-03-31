@@ -1,11 +1,3 @@
-#install.packages('raster')
-#install.packages('remotes')
-#devtools::install_github("sjevelazco/flexsdm")
-#install.packages('corrplot')
-#install.packages('blockCV')
-#install.packages('SDMtune')
-#install.packages('rasterVis')
-
 library(rgbif)
 library(CoordinateCleaner)
 library(terra)
@@ -21,11 +13,12 @@ library(patchwork)
 library(flexsdm)
 library(conflicted)
 library(rasterVis)
+library(ggspatial)
+library(rnaturalearthdata)
 
 
-ab_clean <- read.table(file = "Aristida_beyrichiana/a_beyrichiana_occ_clean.csv", header = TRUE, sep = ",")
+ab_clean <- read.table(file = "species_data/a_beyrichiana_occ_clean.csv", header = TRUE, sep = ",")
 
-# Species Data ------------------------------------------------------------
 ### setting cleaned gbif data to the correct crs
 ab_no_crs <- st_as_sf(ab_clean, coords = c('lon', 'lat'), remove = FALSE)
 ab_crs84 <- ab_no_crs
@@ -39,29 +32,19 @@ se_vect <- terra::vect(se_aoi)
 aoi <- se_vect
 
 us_states <- ne_states(country = 'united states of america', returnclass = 'sf')
-states_sel <- c('North Carolina', 'South Carolina', 'Georgia', 'Florida', 'Alabama', 'Mississippi')
-us_states %>% dplyr::filter(name_en %in% states_sel) -> sern
+states_sel <- c('North Carolina', 'South Carolina', 'Georgia', 'Florida', 'Alabama',
+                'Mississippi', 'Virginia', 'West Virginia', 'Tennessee','Missouri',
+                'Louisiana', 'Arkansas', 'Kentucky', 'Indiana', 'Ohio', 'Pennsylvania',
+                'Maryland', 'Delaware', 'New Jersey', 'Illinois', 'Missouri',
+                'Oklahoma', 'Texas', 'New York', 'Connecticut', 'Rhode Island', 'Massachusetts')
+us_states %>%
+  dplyr::filter(name_en %in% states_sel) -> sern
 states <- terra::vect(sern)
-
-
-# Calibration Area --------------------------------------------------------
-# calib_as <- calib_area (data = as.data.frame(ab_crs84),
-#                         x = 'lon', y = 'lat',
-#                         method = c('buffer', width = 150000),
-#                         crs = crs(ab_crs84))
-# 
-# aoi <- terra::intersect(calib_as, states)
-
-# plot(calib_as)
-# plot(aoi, col = 'red', add = TRUE)
-# plot(states, add = TRUE)
-# plot(as_crs84, add = TRUE)
-
 
 
 # WorldClim Data ----------------------------------------------------------
 ### Worldclim
-wc_rast <- rast("worldclim_named_rast.tiff")
+wc_rast <- rast("variable_data/worldclim_named_rast.tiff")
 
 # files <- list.files("worldclim_data", pattern = "\\.tif$", full.names = TRUE)
 # files <- files[order(as.numeric(sub(".*bio_([0-9]+)\\.tif$", "\\1", files)))]
@@ -81,7 +64,7 @@ wc_rast <- rast("worldclim_named_rast.tiff")
 
 
 ### Fire
-f_rast <- rast("modisfire_named_rast.tiff")
+f_rast <- rast("variable_data/modisfire_named_rast.tiff")
 
 # fire_rast_na <- rast("modis_totalmean_30s.tif")
 # land_mask <- rasterize(se_vect, fire_rast_na[[1]], field = 1, background = NA)
@@ -93,8 +76,9 @@ f_rast <- rast("modisfire_named_rast.tiff")
 # 
 # terra::writeRaster(x = f_crop, file = "modisfire_named_rast.tiff")
 
+
 ### Soil
-s_rast <- rast("soil_named_rast.tiff")
+s_rast <- rast("variable_data/soil_named_rast.tiff")
 
 # s_rast <- rast("SE_soil_data_30s.tiff")
 # 
@@ -109,6 +93,7 @@ s_rast <- rast("soil_named_rast.tiff")
 
 
 covariates <- c(wc_rast, f_rast, s_rast)
+
 names(covariates) <- c("mean_ann_t","mean_diurnal_t_range", "isothermality",
                        "t_seas", 'max_t_warm_m','min_t_cold_m', "t_ann_range",
                        'mean_t_wet_q','mean_t_dry_q','mean_t_warm_q', 'mean_t_cold_q',
@@ -130,7 +115,13 @@ selected_vars <- c("mean_diurnal_t_range", "p_warm_q", "p_cold_q", "mean_t_wet_q
 
 cov_clean <- covariates[[selected_vars]]
 
-beyrichiana_df <- as.data.frame(ab_crs84) %>% (dplyr::select)(lon, lat)
+
+# Spatial Block Cross-Validation ------------------------------------------
+k = 5
+
+beyrichiana_df <- as.data.frame(ab_crs84) %>%
+  (dplyr::select)(lon, lat)
+
 beyrichiana_df$id <- 1:nrow(beyrichiana_df)
 
 occ_filt_nbin <- occfilt_env(
@@ -151,16 +142,13 @@ beyrichiana_filt_pres <- occ_filt_nbin[,2:3]
 beyrichiana_filt_pres$pr_ab <- 1
 
 
-# Spatial Block Cross-Validation ------------------------------------------
-k = 5
-
-spat_range_bey <- cv_spatial_autocor(
+spat_range <- cv_spatial_autocor(
   r = cov_clean,
   x = st_as_sf(beyrichiana_filt_pres, coords = c('lon', 'lat'), crs = crs(cov_clean)),
   column = 'pr_ab',
   plot = TRUE
 )
-#recommended block size, returned 122975
+  # recommended block size, returned 122975
 
 spat_blocks1 <- cv_spatial(
   x = st_as_sf(beyrichiana_filt_pres, coords = c('lon', 'lat'), crs = crs(cov_clean)),
@@ -215,7 +203,6 @@ pa %>%
 #   labs(colour = 'folds', shape = 'Presence/\nPseudo-absence') +
 #   theme_void()
 
-# write.csv(x = pa, file = "Aristida_beyrichiana/pseudo_absence_data_beyrichiana.csv", quote = FALSE)
 
 ### Extracting covariate values for each point
 SWDdata <- prepareSWD(
@@ -227,16 +214,16 @@ SWDdata <- prepareSWD(
 
 
 # RandomForest ------------------------------------------------------------
-#with random folds
+# with random folds
 rand_folds <- randomFolds(SWDdata, k = k, seed = 1)
 set.seed(1)
 rf_randcv <- train(method = 'RF', data = SWDdata, folds = rand_folds)
 
 # evaluation metrics using 'Area under curve' and 'TrueSkill statistics'
 paste0('Testing AUC: ', round(SDMtune::auc(rf_randcv, test = TRUE),2))
-# returned 0.92
+  # returned 0.92
 paste0('Testing TSS: ', round(SDMtune::tss(rf_randcv, test = TRUE),2))
-# returned 0.72
+  # returned 0.72
 
 #with spatial folds
 spat_blocks2 <- cv_spatial(
@@ -257,9 +244,9 @@ set.seed(1)
 rf_sbcv <- train(method = 'RF', data = SWDdata, folds = spat_blocks2)
 
 paste0('Testing AUC: ', round(SDMtune::auc(rf_sbcv, test = TRUE),2))
-# returned 0.88
+  # returned 0.88
 paste0('Testing TSS: ', round(SDMtune::tss(rf_sbcv, test = TRUE),2))
-# returned 0.67
+  # returned 0.67
 
 # Receiver operator characteristics for each curve
 source('C:/Users/emars/Desktop/intro to spatial data in R/Intro_to_spatial-main/scripts/functions/extract_roc_vals.R')
@@ -284,7 +271,7 @@ auc_vals$label <- paste0(auc_vals$model_no, ": ", round(auc_vals$auc,2))
 
 # Variable Importance -----------------------------------------------------
 vi_rf_sbcv <- varImp(rf_sbcv)
-plotVarImp(vi_rf_sbcv)
+# plotVarImp(vi_rf_sbcv)
 
 ### Response Curves
 plotResponse(rf_sbcv, var = "p_warm_q", marginal = TRUE, rug = TRUE) + labs(x = 'precipitation of the warmest quarter') +
@@ -297,10 +284,12 @@ plotResponse(rf_sbcv, var = "p_warm_q", marginal = TRUE, rug = TRUE) + labs(x = 
   plotResponse(rf_sbcv, var = "nitrogen_0_5cm", marginal = TRUE, rug = TRUE) + labs(x = 'nitrogen content 0-5cm deep') +
   plotResponse(rf_sbcv, var = "f_intensity", marginal = TRUE, rug = TRUE) + labs(x = 'fire intensity')
 
-### model prediction
-pred <- predict(rf_sbcv, data = cov_clean)
 
-pred_df <- as.data.frame(pred, xy = TRUE) 
+# Model Prediction --------------------------------------------------------
+pred_bey <- predict(rf_sbcv, data = cov_clean)
+# saveRDS(pred_bey, file = "a_beyrichiana_prediction.RData")
+
+pred_df <- as.data.frame(pred_bey, xy = TRUE) 
 
 
 ggplot() +

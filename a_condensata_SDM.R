@@ -13,15 +13,13 @@ library(patchwork)
 library(flexsdm)
 library(conflicted)
 library(rasterVis)
-library(mapview)
 library(ggspatial)
-library(patchwork)
 library(rnaturalearthdata)
-library(ggtext)
 
 
 ac_clean <- read.table(file = "species_data/a_condensata_occ_clean.csv", header = TRUE, sep = ",")
 
+### setting cleaned gbif data to the correct crs
 ac_no_crs <- st_as_sf(ac_clean, coords = c('lon', 'lat'), remove = FALSE)
 ac_crs84 <- ac_no_crs
 st_crs(ac_crs84) = 4326
@@ -42,21 +40,6 @@ states_sel <- c('North Carolina', 'South Carolina', 'Georgia', 'Florida', 'Alaba
 us_states %>%
   dplyr::filter(name_en %in% states_sel) -> sern
 states <- terra::vect(sern)
-
-
-# Calibration Area --------------------------------------------------------
-# calib_ac <- calib_area (data = as.data.frame(ac_crs84),
-#                         x = 'lon', y = 'lat',
-#                         method = c('buffer', width = 150000),
-#                         crs = crs(ac_crs84))
-
-# aoi <- terra::intersect(calib_ac, states)
-
-# plot(calib_ac)
-# plot(aoi, col = 'red', add = TRUE)
-# plot(states, add = TRUE)
-# plot(ac_crs84, add = TRUE)
-
 
 
 # Variable Data ----------------------------------------------------------
@@ -90,8 +73,8 @@ f_rast <- rast("variable_data/modisfire_named_rast.tiff")
 # f_crop <- mask(crop(fire_rast, aoi), aoi)
 # 
 # names(f_crop) <- c("f_intensity", "f_freq", "f_seas")
-# 
 # terra::writeRaster(x = f_crop, file = "modisfire_named_rast.tiff")
+
 
 ### Soil
 s_rast <- rast("variable_data/soil_named_rast.tiff")
@@ -100,14 +83,14 @@ s_rast <- rast("variable_data/soil_named_rast.tiff")
 # 
 # s_crop <- resample(x = s_rast, y = wc_rast)
 # 
-# names(s_rast) <- c("clay_0_5cm_mean", "clay_5_15cm", "clay_15_30cm", "nitrogen_0_5cm",
+# names(s_rast) <- c("clay_0_5cm", "clay_5_15cm", "clay_15_30cm", "nitrogen_0_5cm",
 #                    "nitrogen_5_15cm", "nitrogen_15_30cm", "ocd_0_5cm", "ocd_5_15cm",
 #                    "ocd_15_30cm", "soc_0_5cm", "soc_5_15cm", "soc_15_30cm",
 #                    "phh2o_0_5cm", "phh2o_5_15cm", "phh2o_15_30cm", "sand_0_5cm",
 #                    "sand_5_15cm", "sand_15_30cm", "silt_0_5cm", "silt_5_15cm",
 #                    "silt_15_30cm")
-# 
 # terra::writeRaster(x = s_crop, file = "soil_named_rast.tiff", overwrite = TRUE)
+
 
 covariates <- c(wc_rast, f_rast, s_rast)
 
@@ -128,16 +111,14 @@ names(covariates) <- c("mean_ann_t","mean_diurnal_t_range", "isothermality",
 # corrplot(cov_colin$cor_table, tl.cex = 0.6)
 # cov_colin$cor_variables
 
+
 selected_vars <- c("mean_diurnal_t_range", "p_warm_q", "p_cold_q", "mean_t_wet_q", "f_intensity", "nitrogen_0_5cm", "phh2o_5_15cm", "clay_15_30cm")
 
 cov_clean <- covariates[[selected_vars]]
 
 
-## table with cross-validation
-# condensata_filt_pres <- read.table(file = "species_data/a_condensata_spatial_blocks.csv", header = TRUE, sep = ",")
-
-k = 5
 # Spatial Block Cross-Validation ------------------------------------------
+k = 5
 
 condensata_df <- as.data.frame(ac_crs84) %>%
   (dplyr::select)(lon, lat)
@@ -167,7 +148,7 @@ spat_range <- cv_spatial_autocor(
   column = 'pr_ab',
   plot = TRUE
 )
-#recommended block size returned 143290
+  # recommended block size returned 143290
 
 spat_blocks1 <- cv_spatial(
   x = st_as_sf(condensata_filt_pres, coords = c('lon', 'lat'), crs = crs(cov_clean)),
@@ -188,10 +169,7 @@ condensata_filt_pres %>%
 grid_env <- rasterize(vect(spat_blocks1$blocks), cov_clean, field = 'folds')
 # plot(grid_env)
 
-# write.csv(x = condensata_filt_pres, file = "condensata_spatial_blocks.csv", sep = ",", quote = FALSE)
 
-
-# pa <- read.table(file = "species_data/a_condensata_pseudo_absence_data.csv", header = TRUE, sep = ",")
 # Pseudo-Absence Data -----------------------------------------------------
 ## using proportional stratification
 pa <- lapply(1:k, function(x) {
@@ -228,7 +206,6 @@ pa %>%
 #   labs(colour = 'folds', shape = 'Presence/\nPseudo-absence') +
 #   theme_void()
 
-# write.csv(x = pa, file = "a_condensata_pseudo_absence_data.csv", quote = FALSE)
 
 ### Extracting covariate values for each point
 SWDdata <- prepareSWD(
@@ -247,9 +224,9 @@ rf_randcv <- train(method = 'RF', data = SWDdata, folds = rand_folds)
 
 # evaluation metrics using 'Area under curve' and 'TrueSkill statistics'
 paste0('Testing AUC: ', round(SDMtune::auc(rf_randcv, test = TRUE),2))
-# returned 0.89
+  # returned 0.89
 paste0('Testing TSS: ', round(SDMtune::tss(rf_randcv, test = TRUE),2))
-# returned 0.69
+  # returned 0.69
 
 #with spatial folds
 spat_blocks2 <- cv_spatial(
@@ -271,9 +248,9 @@ rf_sbcv <- train(method = 'RF', data = SWDdata, folds = spat_blocks2)
 
 
 paste0('Testing AUC: ', round(SDMtune::auc(rf_sbcv, test = TRUE),2))
-# returned 0.91
+  # returned 0.91
 paste0('Testing TSS: ', round(SDMtune::tss(rf_sbcv, test = TRUE),2))
-# returned 0.73
+  # returned 0.73
 
 # Receiver operator characteristics for each curve
 source('C:/Users/emars/Desktop/intro to spatial data in R/Intro_to_spatial-main/scripts/functions/extract_roc_vals.R')
@@ -282,23 +259,23 @@ auc_vals <- extract_auc_vals(rf_sbcv, spat_blocks2, SWDdata)
 auc_vals$label <- paste0(auc_vals$model_no, ": ", round(auc_vals$auc,2))
 
 
-ggplot(data = spec_sens_val) +
-  geom_abline(aes(slope = 1, intercept = 0), lty = 2) +
-  geom_path(aes(x = 1- specificities, y = sensitivities, group = model_no, col = as.factor(model_no)), alpha = 0.8) +
-  scale_colour_viridis_d(name = 'Model no. + AUC',
-                         labels = auc_vals$label) +
-  labs(x = 'false positive rate', y = 'true positive rate') +
-  geom_text(aes(x = 0.15, y = 0.95), label = paste0('overall testing AUC: ', round(SDMtune::auc(rf_sbcv, test = TRUE),2)), size = 3) +
-  theme_bw() +
-  theme(panel.grid = element_blank(),
-        legend.position = c(0.8, 0.25),
-        legend.title = element_text(size = 8),
-        legend.text = element_text(size = 7))
+# ggplot(data = spec_sens_val) +
+#   geom_abline(aes(slope = 1, intercept = 0), lty = 2) +
+#   geom_path(aes(x = 1- specificities, y = sensitivities, group = model_no, col = as.factor(model_no)), alpha = 0.8) +
+#   scale_colour_viridis_d(name = 'Model no. + AUC',
+#                          labels = auc_vals$label) +
+#   labs(x = 'false positive rate', y = 'true positive rate') +
+#   geom_text(aes(x = 0.15, y = 0.95), label = paste0('overall testing AUC: ', round(SDMtune::auc(rf_sbcv, test = TRUE),2)), size = 3) +
+#   theme_bw() +
+#   theme(panel.grid = element_blank(),
+#         legend.position = c(0.8, 0.25),
+#         legend.title = element_text(size = 8),
+#         legend.text = element_text(size = 7))
 
 
 # Variable Importance -----------------------------------------------------
 vi_rf_sbcv <- varImp(rf_sbcv)
-plotVarImp(vi_rf_sbcv)
+# plotVarImp(vi_rf_sbcv)
 
 ### Response Curves
 plotResponse(rf_sbcv, var = "p_warm_q", marginal = TRUE, rug = TRUE) + labs(x = 'precipitation of the warmest quarter') +
@@ -312,12 +289,11 @@ plotResponse(rf_sbcv, var = "clay_15_30cm", marginal = TRUE, rug = TRUE) + labs(
   plotResponse(rf_sbcv, var = "f_intensity", marginal = TRUE, rug = TRUE) + labs(x = 'fire intensity')
 
 
+# Model Prediction --------------------------------------------------------
+pred_con <- predict(rf_sbcv, data = cov_clean)
+# saveRDS(pred_con, file = "a_condensata_prediction.RData")
 
-### model prediction
-# terra::writeRaster(x = pred, file = "a_condensata_model_prediction.tiff") 
-pred <- predict(rf_sbcv, data = cov_clean)
-
-pred_df <- as.data.frame(pred, xy = TRUE) 
+pred_df <- as.data.frame(pred_con, xy = TRUE) 
 
 
 ggplot() +

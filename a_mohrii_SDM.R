@@ -22,6 +22,7 @@ library(ggtext)
 
 am_clean <- read.table(file = "species_data/a_mohrii_occ_clean.csv", header = TRUE, sep = ",")
 
+### setting cleaned gbif data to the correct crs
 am_no_crs <- st_as_sf(am_clean, coords = c('lon', 'lat'), remove = FALSE)
 am_crs84 <- am_no_crs
 st_crs(am_crs84) = 4326
@@ -42,22 +43,6 @@ states_sel <- c('North Carolina', 'South Carolina', 'Georgia', 'Florida', 'Alaba
 us_states %>%
   dplyr::filter(name_en %in% states_sel) -> sern
 states <- terra::vect(sern)
-
-
-# Calibration Area --------------------------------------------------------
-# calib_am <- calib_area (data = as.data.frame(am_crs84),
-#                         x = 'lon', y = 'lat',
-#                         method = c('buffer', width = 150000),
-#                         crs = crs(am_crs84))
-
-# aoi <- terra::intersect(calib_am, states)
-
-# plot(calib_am)
-# plot(aoi, col = 'red', add = TRUE)
-# plot(states, add = TRUE)
-# plot(am_crs84, add = TRUE)
-
-
 
 # Variable Data ----------------------------------------------------------
 ### Worldclim
@@ -90,8 +75,8 @@ f_rast <- rast("variable_data/modisfire_named_rast.tiff")
 # f_crop <- mask(crop(fire_rast, aoi), aoi)
 # 
 # names(f_crop) <- c("f_intensity", "f_freq", "f_seas")
-# 
 # terra::writeRaster(x = f_crop, file = "modisfire_named_rast.tiff")
+
 
 ### Soil
 s_rast <- rast("variable_data/soil_named_rast.tiff")
@@ -106,8 +91,8 @@ s_rast <- rast("variable_data/soil_named_rast.tiff")
 #                    "phh2o_0_5cm", "phh2o_5_15cm", "phh2o_15_30cm", "sand_0_5cm",
 #                    "sand_5_15cm", "sand_15_30cm", "silt_0_5cm", "silt_5_15cm",
 #                    "silt_15_30cm")
-# 
 # terra::writeRaster(x = s_crop, file = "soil_named_rast.tiff", overwrite = TRUE)
+
 
 covariates <- c(wc_rast, f_rast, s_rast)
 
@@ -123,7 +108,7 @@ names(covariates) <- c("mean_ann_t","mean_diurnal_t_range", "isothermality",
                        "phh2o_0_5cm", "phh2o_5_15cm", "phh2o_15_30cm", "sand_0_5cm",
                        "sand_5_15cm", "sand_15_30cm", "silt_0_5cm", "silt_5_15cm",
                        "silt_15_30cm")
-# 
+
 # cov_colin <- correct_colinvar(covariates, method = c('pearson', th = "0.7"))
 # corrplot(cov_colin$cor_table, tl.cex = 0.6)
 # cov_colin$cor_variables
@@ -133,11 +118,8 @@ selected_vars <- c("mean_diurnal_t_range", "p_warm_q", "p_cold_q", "mean_t_wet_q
 cov_clean <- covariates[[selected_vars]]
 
 
-## table with cross-validation
-# mohrii_filt_pres <- read.table(file = "species_data/a_mohrii_spatial_blocks.csv", header = TRUE, sep = ",")
-
-k = 5
 # Spatial Block Cross-Validation ------------------------------------------
+k = 5
 
 mohrii_df <- as.data.frame(am_crs84) %>%
   (dplyr::select)(lon, lat)
@@ -167,7 +149,7 @@ spat_range <- cv_spatial_autocor(
   column = 'pr_ab',
   plot = TRUE
 )
-#recommended block size returned 104744
+  # recommended block size returned 104744
 
 spat_blocks1 <- cv_spatial(
   x = st_as_sf(mohrii_filt_pres, coords = c('lon', 'lat'), crs = crs(cov_clean)),
@@ -188,10 +170,8 @@ mohrii_filt_pres %>%
 grid_env <- rasterize(vect(spat_blocks1$blocks), cov_clean, field = 'folds')
 # plot(grid_env)
 
-# write.csv(x = mohrii_filt_pres, file = "mohrii_spatial_blocks.csv", sep = ",", quote = FALSE)
 
 
-# pa <- read.table(file = "species_data/a_mohrii_pseudo_absence_data.csv", header = TRUE, sep = ",")
 # Pseudo-Absence Data -----------------------------------------------------
 ## using proportional stratification
 pa <- lapply(1:k, function(x) {
@@ -228,7 +208,6 @@ pa %>%
 #   labs(colour = 'folds', shape = 'Presence/\nPseudo-absence') +
 #   theme_void()
 
-# write.csv(x = pa, file = "a_mohrii_pseudo_absence_data.csv", quote = FALSE)
 
 ### Extracting covariate values for each point
 SWDdata <- prepareSWD(
@@ -247,9 +226,9 @@ rf_randcv <- train(method = 'RF', data = SWDdata, folds = rand_folds)
 
 # evaluation metrics using 'Area under curve' and 'TrueSkill statistics'
 paste0('Testing AUC: ', round(SDMtune::auc(rf_randcv, test = TRUE),2))
-# returned 0.76
+  # returned 0.76
 paste0('Testing TSS: ', round(SDMtune::tss(rf_randcv, test = TRUE),2))
-# returned 0.60
+  # returned 0.60
 
 #with spatial folds
 spat_blocks2 <- cv_spatial(
@@ -271,9 +250,9 @@ rf_sbcv <- train(method = 'RF', data = SWDdata, folds = spat_blocks2)
 
 
 paste0('Testing AUC: ', round(SDMtune::auc(rf_sbcv, test = TRUE),2))
-# returned 0.64
+  # returned 0.64
 paste0('Testing TSS: ', round(SDMtune::tss(rf_sbcv, test = TRUE),2))
-# returned 0.51
+  # returned 0.51
 
 # Receiver operator characteristics for each curve
 source('C:/Users/emars/Desktop/intro to spatial data in R/Intro_to_spatial-main/scripts/functions/extract_roc_vals.R')
@@ -282,23 +261,23 @@ auc_vals <- extract_auc_vals(rf_sbcv, spat_blocks2, SWDdata)
 auc_vals$label <- paste0(auc_vals$model_no, ": ", round(auc_vals$auc,2))
 
 
-ggplot(data = spec_sens_val) +
-  geom_abline(aes(slope = 1, intercept = 0), lty = 2) +
-  geom_path(aes(x = 1- specificities, y = sensitivities, group = model_no, col = as.factor(model_no)), alpha = 0.8) +
-  scale_colour_viridis_d(name = 'Model no. + AUC',
-                         labels = auc_vals$label) +
-  labs(x = 'false positive rate', y = 'true positive rate') +
-  geom_text(aes(x = 0.15, y = 0.95), label = paste0('overall testing AUC: ', round(SDMtune::auc(rf_sbcv, test = TRUE),2)), size = 3) +
-  theme_bw() +
-  theme(panel.grid = element_blank(),
-        legend.position = c(0.8, 0.25),
-        legend.title = element_text(size = 8),
-        legend.text = element_text(size = 7))
+# ggplot(data = spec_sens_val) +
+#   geom_abline(aes(slope = 1, intercept = 0), lty = 2) +
+#   geom_path(aes(x = 1- specificities, y = sensitivities, group = model_no, col = as.factor(model_no)), alpha = 0.8) +
+#   scale_colour_viridis_d(name = 'Model no. + AUC',
+#                          labels = auc_vals$label) +
+#   labs(x = 'false positive rate', y = 'true positive rate') +
+#   geom_text(aes(x = 0.15, y = 0.95), label = paste0('overall testing AUC: ', round(SDMtune::auc(rf_sbcv, test = TRUE),2)), size = 3) +
+#   theme_bw() +
+#   theme(panel.grid = element_blank(),
+#         legend.position = c(0.8, 0.25),
+#         legend.title = element_text(size = 8),
+#         legend.text = element_text(size = 7))
 
 
 # Variable Importance -----------------------------------------------------
 vi_rf_sbcv <- varImp(rf_sbcv)
-plotVarImp(vi_rf_sbcv)
+# plotVarImp(vi_rf_sbcv)
 
 ### Response Curves
 plotResponse(rf_sbcv, var = "p_warm_q", marginal = TRUE, rug = TRUE) + labs(x = 'precipitation of the warmest quarter') +
@@ -312,12 +291,11 @@ plotResponse(rf_sbcv, var = "clay_15_30cm", marginal = TRUE, rug = TRUE) + labs(
   plotResponse(rf_sbcv, var = "f_intensity", marginal = TRUE, rug = TRUE) + labs(x = 'fire intensity')
 
 
+# Model Prediction --------------------------------------------------------
+pred_moh <- predict(rf_sbcv, data = cov_clean)
+# saveRDS(pred_moh, file = "a_mohrii_prediction.RData")
 
-### model prediction
-# terra::writeRaster(x = pred, file = "a_mohrii_model_prediction.tiff") 
-pred <- predict(rf_sbcv, data = cov_clean)
-
-pred_df <- as.data.frame(pred, xy = TRUE) 
+pred_df <- as.data.frame(pred_moh, xy = TRUE) 
 
 
 ggplot() +

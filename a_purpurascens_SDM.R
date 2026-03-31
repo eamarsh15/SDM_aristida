@@ -13,15 +13,13 @@ library(patchwork)
 library(flexsdm)
 library(conflicted)
 library(rasterVis)
-library(mapview)
 library(ggspatial)
-library(patchwork)
 library(rnaturalearthdata)
-library(ggtext)
 
 
 apu_clean <- read.table(file = "species_data/a_purpurascens_occ_clean.csv", header = TRUE, sep = ",")
 
+### setting cleaned gbif data to the correct crs
 apu_no_crs <- st_as_sf(apu_clean, coords = c('lon', 'lat'), remove = FALSE)
 apu_crs84 <- apu_no_crs
 st_crs(apu_crs84) = 4326
@@ -42,21 +40,6 @@ states_sel <- c('North Carolina', 'South Carolina', 'Georgia', 'Florida', 'Alaba
 us_states %>%
   dplyr::filter(name_en %in% states_sel) -> sern
 states <- terra::vect(sern)
-
-
-# Calibration Area --------------------------------------------------------
-# calib_apu <- calib_area (data = as.data.frame(apu_crs84),
-#                         x = 'lon', y = 'lat',
-#                         method = c('buffer', width = 150000),
-#                         crs = crs(apu_crs84))
-
-# aoi <- terra::intersect(calib_apu, states)
-
-# plot(calib_apu)
-# plot(aoi, col = 'red', add = TRUE)
-# plot(states, add = TRUE)
-# plot(apu_crs84, add = TRUE)
-
 
 
 # Variable Data ----------------------------------------------------------
@@ -90,8 +73,8 @@ f_rast <- rast("variable_data/modisfire_named_rast.tiff")
 # f_crop <- mask(crop(fire_rast, aoi), aoi)
 # 
 # names(f_crop) <- c("f_intensity", "f_freq", "f_seas")
-# 
 # terra::writeRaster(x = f_crop, file = "modisfire_named_rast.tiff")
+
 
 ### Soil
 s_rast <- rast("variable_data/soil_named_rast.tiff")
@@ -106,8 +89,8 @@ s_rast <- rast("variable_data/soil_named_rast.tiff")
 #                    "phh2o_0_5cm", "phh2o_5_15cm", "phh2o_15_30cm", "sand_0_5cm",
 #                    "sand_5_15cm", "sand_15_30cm", "silt_0_5cm", "silt_5_15cm",
 #                    "silt_15_30cm")
-# 
 # terra::writeRaster(x = s_crop, file = "soil_named_rast.tiff", overwrite = TRUE)
+
 
 covariates <- c(wc_rast, f_rast, s_rast)
 
@@ -123,21 +106,19 @@ names(covariates) <- c("mean_ann_t","mean_diurnal_t_range", "isothermality",
                        "phh2o_0_5cm", "phh2o_5_15cm", "phh2o_15_30cm", "sand_0_5cm",
                        "sand_5_15cm", "sand_15_30cm", "silt_0_5cm", "silt_5_15cm",
                        "silt_15_30cm")
-# 
+
 # cov_colin <- correct_colinvar(covariates, method = c('pearson', th = "0.7"))
 # corrplot(cov_colin$cor_table, tl.cex = 0.6)
 # cov_colin$cor_variables
+
 
 selected_vars <- c("mean_diurnal_t_range", "p_warm_q", "p_cold_q", "mean_t_wet_q", "f_intensity", "nitrogen_0_5cm", "phh2o_5_15cm", "clay_15_30cm")
 
 cov_clean <- covariates[[selected_vars]]
 
 
-## table with cross-validation
-# purpurascens_filt_pres <- read.table(file = "species_data/a_purpurascens_spatial_blocks.csv", header = TRUE, sep = ",")
-
-k = 5
 # Spatial Block Cross-Validation ------------------------------------------
+k = 5
 
 purpurascens_df <- as.data.frame(apu_crs84) %>%
   (dplyr::select)(lon, lat)
@@ -167,7 +148,7 @@ spat_range <- cv_spatial_autocor(
   column = 'pr_ab',
   plot = TRUE
 )
-#recommended block size returned 162522
+  # recommended block size returned 162522
 
 spat_blocks1 <- cv_spatial(
   x = st_as_sf(purpurascens_filt_pres, coords = c('lon', 'lat'), crs = crs(cov_clean)),
@@ -188,10 +169,7 @@ purpurascens_filt_pres %>%
 grid_env <- rasterize(vect(spat_blocks1$blocks), cov_clean, field = 'folds')
 # plot(grid_env)
 
-# write.csv(x = purpurascens_filt_pres, file = "purpurascens_spatial_blocks.csv", sep = ",", quote = FALSE)
 
-
-# pa <- read.table(file = "species_data/a_purpurascens_pseudo_absence_data.csv", header = TRUE, sep = ",")
 # Pseudo-Absence Data -----------------------------------------------------
 ## using proportional stratification
 pa <- lapply(1:k, function(x) {
@@ -228,7 +206,6 @@ pa %>%
 #   labs(colour = 'folds', shape = 'Presence/\nPseudo-absence') +
 #   theme_void()
 
-# write.csv(x = pa, file = "a_purpurascens_pseudo_absence_data.csv", quote = FALSE)
 
 ### Extracting covariate values for each point
 SWDdata <- prepareSWD(
@@ -247,9 +224,9 @@ rf_randcv <- train(method = 'RF', data = SWDdata, folds = rand_folds)
 
 # evaluation metrics using 'Area under curve' and 'TrueSkill statistics'
 paste0('Testing AUC: ', round(SDMtune::auc(rf_randcv, test = TRUE),2))
-# returned 0.87
+  # returned 0.87
 paste0('Testing TSS: ', round(SDMtune::tss(rf_randcv, test = TRUE),2))
-# returned 0.67
+  # returned 0.67
 
 #with spatial folds
 spat_blocks2 <- cv_spatial(
@@ -271,9 +248,9 @@ rf_sbcv <- train(method = 'RF', data = SWDdata, folds = spat_blocks2)
 
 
 paste0('Testing AUC: ', round(SDMtune::auc(rf_sbcv, test = TRUE),2))
-# returned 0.81
+  # returned 0.81
 paste0('Testing TSS: ', round(SDMtune::tss(rf_sbcv, test = TRUE),2))
-# returned 0.52
+  # returned 0.52
 
 # Receiver operator characteristics for each curve
 source('C:/Users/emars/Desktop/intro to spatial data in R/Intro_to_spatial-main/scripts/functions/extract_roc_vals.R')
@@ -298,26 +275,25 @@ auc_vals$label <- paste0(auc_vals$model_no, ": ", round(auc_vals$auc,2))
 
 # Variable Importance -----------------------------------------------------
 vi_rf_sbcv <- varImp(rf_sbcv)
-plotVarImp(vi_rf_sbcv)
+# plotVarImp(vi_rf_sbcv)
 
 ### Response Curves
 plotResponse(rf_sbcv, var = "p_warm_q", marginal = TRUE, rug = TRUE) + labs(x = 'precipitation of the warmest quarter') +
   plotResponse(rf_sbcv, var = "mean_diurnal_t_range", marginal = TRUE, rug = TRUE) + labs(x = 'mean diurnal temperature range') +
   plotResponse(rf_sbcv, var = "p_cold_q", marginal = TRUE, rug = TRUE) + labs(x = 'precipitation of the coldest quarter') +
   plotResponse(rf_sbcv, var = "mean_t_wet_q", marginal = TRUE, rug = TRUE) + labs(x = 'mean temperature of the wettest quarter')
-  
+
 plotResponse(rf_sbcv, var = "clay_15_30cm", marginal = TRUE, rug = TRUE) + labs(x = 'clay content 15-30cm deep') +
   plotResponse(rf_sbcv, var = "clay_15_30cm", marginal = TRUE, rug = TRUE) + labs(x = 'clay content 15-30cm deep') +
   plotResponse(rf_sbcv, var = "nitrogen_0_5cm", marginal = TRUE, rug = TRUE) + labs(x = 'nitrogen content 0-5cm deep') +
   plotResponse(rf_sbcv, var = "f_intensity", marginal = TRUE, rug = TRUE) + labs(x = 'fire intensity')
 
 
-
 ### model prediction
-# terra::writeRaster(x = pred, file = "a_purpurascens_model_prediction.tiff") 
-pred <- predict(rf_sbcv, data = cov_clean)
+pred_pur <- predict(rf_sbcv, data = cov_clean)
+# saveRDS(pred_pur, file = "a_purpurascens_prediction.RData")
 
-pred_df <- as.data.frame(pred, xy = TRUE) 
+pred_df <- as.data.frame(pred_pur, xy = TRUE) 
 
 
 ggplot() +
