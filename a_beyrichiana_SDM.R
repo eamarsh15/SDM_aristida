@@ -1,3 +1,4 @@
+setwd("~/NCSU/Students/Ellison_Marshall/")
 library(rgbif)
 library(CoordinateCleaner)
 library(terra)
@@ -17,7 +18,29 @@ library(ggspatial)
 library(rnaturalearthdata)
 
 
-ab_clean <- read.table(file = "species_data/a_beyrichiana_occ_clean.csv", header = TRUE, sep = ",")
+# Species Data ------------------------------------------------------------
+myspecies <- "Aristida beyrichiana"
+gbif_download <- occ_data(scientificName = myspecies, hasCoordinate = TRUE)
+gbif_data <- gbif_download$data
+names(gbif_data)[1:10]
+
+gbif_data %>%
+  dplyr::filter(year >= 1900) %>%
+  dplyr::filter(!coordinateUncertaintyInMeters %in% c(301,3036,999,9999)) %>%
+  dplyr::filter(!decimalLatitude == 0 | !decimalLongitude == 0) %>%
+  dplyr::filter(decimalLatitude >= 25) %>%
+  cc_cen(lat = 'decimalLatitude', lon = 'decimalLongitude', buffer = 2000) %>%
+  cc_cap(lat = 'decimalLatitude', lon = 'decimalLongitude', buffer = 2000) %>%
+  cc_inst(lat = 'decimalLatitude', lon = 'decimalLongitude', buffer = 2000) %>%
+  cc_sea(lat = 'decimalLatitude', lon = 'decimalLongitude') %>%
+  distinct(decimalLongitude,decimalLatitude,speciesKey,datasetKey, .keep_all = TRUE) -> a_beyrichiana
+
+## variable selection and renaming
+a_beyrichiana %>%
+  dplyr::select(key, year, basisOfRecord, decimalLongitude, decimalLatitude) %>%
+  rename(lon = decimalLongitude, lat = decimalLatitude) -> ab_clean
+
+#ab_clean <- read.table(file = "species_data/a_beyrichiana_occ_clean.csv", header = TRUE, sep = ",")
 
 ### setting cleaned gbif data to the correct crs
 ab_no_crs <- st_as_sf(ab_clean, coords = c('lon', 'lat'), remove = FALSE)
@@ -26,7 +49,7 @@ st_crs(ab_crs84) = 4326
 
 
 # Setting AOI -------------------------------------------------------------
-se_aoi <- read_sf("SE_study_region_data")
+se_aoi <- read_sf("SE_Study_Region")
 st_crs(se_aoi) = 4326
 se_vect <- terra::vect(se_aoi)
 aoi <- se_vect
@@ -44,7 +67,7 @@ states <- terra::vect(sern)
 
 # WorldClim Data ----------------------------------------------------------
 ### Worldclim
-wc_rast <- rast("variable_data/worldclim_named_rast.tiff")
+wc_rast <- rast("worldclim_named_rast.tiff")
 
 # files <- list.files("worldclim_data", pattern = "\\.tif$", full.names = TRUE)
 # files <- files[order(as.numeric(sub(".*bio_([0-9]+)\\.tif$", "\\1", files)))]
@@ -64,7 +87,7 @@ wc_rast <- rast("variable_data/worldclim_named_rast.tiff")
 
 
 ### Fire
-f_rast <- rast("variable_data/modisfire_named_rast.tiff")
+f_rast <- rast("modisfire_named_rast.tiff")
 
 # fire_rast_na <- rast("modis_totalmean_30s.tif")
 # land_mask <- rasterize(se_vect, fire_rast_na[[1]], field = 1, background = NA)
@@ -78,7 +101,7 @@ f_rast <- rast("variable_data/modisfire_named_rast.tiff")
 
 
 ### Soil
-s_rast <- rast("variable_data/soil_named_rast.tiff")
+s_rast <- rast("soil_named_rast.tiff")
 
 # s_rast <- rast("SE_soil_data_30s.tiff")
 # 
@@ -288,6 +311,7 @@ plotResponse(rf_sbcv, var = "p_warm_q", marginal = TRUE, rug = TRUE) + labs(x = 
 # Model Prediction --------------------------------------------------------
 pred_bey <- predict(rf_sbcv, data = cov_clean)
 # saveRDS(pred_bey, file = "a_beyrichiana_prediction.RData")
+terra::writeRaster(pred_bey, "A_beyrichiana_prediction.tif")
 
 pred_df <- as.data.frame(pred_bey, xy = TRUE) 
 
@@ -313,3 +337,13 @@ ggplot() +
     plot.title = element_text(face = "italic"),
     axis.ticks = element_line(linewidth = 0.5)
   )
+
+####
+# Overlay distributions of some parameter for the presence and pseudoabsence
+absence_data <- terra::extract(wc_rast, pa[1:2])
+presence_data <- terra::extract(wc_rast, beyrichiana_filt_pres[1:2])
+my_pres_abs_data <- dplyr::bind_rows(list(Presence = presence_data, Pseudoabsence = absence_data), .id = "DataType")
+ggplot(my_pres_abs_data, aes(x=p_warm_q, fill= DataType)) +
+  geom_density(alpha=0.7) +
+  theme_bw()
+

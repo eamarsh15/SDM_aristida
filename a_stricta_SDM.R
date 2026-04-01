@@ -1,11 +1,4 @@
-#install.packages('raster')
-#install.packages('remotes')
-#devtools::install_github("sjevelazco/flexsdm")
-#install.packages('corrplot')
-#install.packages('blockCV')
-#install.packages('SDMtune')
-#install.packages('rasterVis')
-
+setwd("~/NCSU/Students/Ellison_Marshall/")
 library(rgbif)
 library(CoordinateCleaner)
 library(terra)
@@ -24,41 +17,41 @@ library(rasterVis)
 library(ggspatial)
 library(rnaturalearthdata)
 
-
-as_clean <- read.table(file = "species_data/a_stricta_occ_clean.csv", header = TRUE, sep = ",")
-
-### setting cleaned gbif data to the correct crs
-as_no_crs <- st_as_sf(as_clean, coords = c('lon', 'lat'), remove = FALSE)
-as_crs84 <- as_no_crs
-st_crs(as_crs84) = 4326
-
-
 # Species Data ------------------------------------------------------------
-# write.table(x = as_crs84, file = "a_stricta_occ_clean_CRS.csv", sep = ",", quote = FALSE)
+myspecies <- "Aristida stricta"
+gbif_download <- occ_data(scientificName = myspecies, hasCoordinate = TRUE)
+gbif_data <- gbif_download$data
+names(gbif_data)[1:10]
 
-# myspecies <- "Aristida stricta"
-# gbif_download <- occ_data(scientificName = myspecies, hasCoordinate = TRUE)
-# gbif_data <- gbif_download$data
-# names(gbif_data)[1:10]
+gbif_data %>%
+  dplyr::filter(year >= 1900) %>%
+    dplyr::filter(!coordinateUncertaintyInMeters %in% c(301,3036,999,9999)) %>%
+    dplyr::filter(!decimalLatitude == 0 | !decimalLongitude == 0) %>%
+    dplyr::filter(decimalLatitude >= 25) %>%
+    cc_cen(lat = 'decimalLatitude', lon = 'decimalLongitude', buffer = 2000) %>%
+    cc_cap(lat = 'decimalLatitude', lon = 'decimalLongitude', buffer = 2000) %>%
+    cc_inst(lat = 'decimalLatitude', lon = 'decimalLongitude', buffer = 2000) %>%
+    cc_sea(lat = 'decimalLatitude', lon = 'decimalLongitude') %>%
+    distinct(decimalLongitude,decimalLatitude,speciesKey,datasetKey, .keep_all = TRUE) -> a_stricta
 
-# gbif_data %>%
-#   dplyr::filter(year >= 1900) %>%
-#   filter(!coordinateUncertaintyInMeters %in% c(301,3036,999,9999)) %>%
-#   filter(!decimalLatitude == 0 | !decimalLongitude == 0) %>%
-#   filter(decimalLatitude >= 25) %>%
-#   cc_cen(lat = 'decimalLatitude', lon = 'decimalLongitude', buffer = 2000) %>%
-#   cc_cap(lat = 'decimalLatitude', lon = 'decimalLongitude', buffer = 2000) %>%
-#   cc_inst(lat = 'decimalLatitude', lon = 'decimalLongitude', buffer = 2000) %>%
-#   cc_sea(lat = 'decimalLatitude', lon = 'decimalLongitude') %>%
-#   distinct(decimalLongitude,decimalLatitude,speciesKey,datasetKey, .keep_all = TRUE) -> a_stricta
-    
 ## variable selection and renaming
-# a_stricta %>%
-#   dplyr::select(key, year, basisOfRecord, decimalLongitude, decimalLatitude) %>%
-#   rename(lon = decimalLongitude, lat = decimalLatitude) -> as_clean
+ a_stricta %>%
+   dplyr::select(key, year, basisOfRecord, decimalLongitude, decimalLatitude) %>%
+   rename(lon = decimalLongitude, lat = decimalLatitude) -> as_clean
+
+ ### setting cleaned gbif data to the correct crs
+ as_no_crs <- st_as_sf(as_clean, coords = c('lon', 'lat'), remove = FALSE)
+ as_crs84 <- as_no_crs
+ st_crs(as_crs84) = 4326
+ 
+write.table(x = as_crs84, file = "a_stricta_occ_clean_CRS.csv", sep = ",", quote = FALSE)
+ 
+ 
+#as_clean <- read.table(file = "species_data/a_stricta_occ_clean.csv", header = TRUE, sep = ",")
+
 
 # Setting AOI -------------------------------------------------------------
-se_aoi <- read_sf("SE_study_region_data")
+se_aoi <- read_sf("SE_Study_Region")
 st_crs(se_aoi) = 4326
 se_vect <- terra::vect(se_aoi)
 aoi <- se_vect
@@ -75,56 +68,61 @@ states <- terra::vect(sern)
 
 
 # Variable Data ----------------------------------------------------------
-### Worldclim
-wc_rast <- rast("variable_data/worldclim_named_rast.tiff")
-
-# files <- list.files("worldclim_data", pattern = "\\.tif$", full.names = TRUE)
-# files <- files[order(as.numeric(sub(".*bio_([0-9]+)\\.tif$", "\\1", files)))]
-# wc_rast <- rast(files)
-# 
-# wc_crop <- resample(x = wc_rast, y = f_rast)
-# 
-# wc_crop[[c(1:2,5:11)]] <- wc_crop[[c(1:2,5:11)]]/10
-# wc_crop[[3:4]] <- wc_crop[[3:4]]/100
-# 
-# names(wc_crop) <- c("mean_ann_t","mean_diurnal_t_range", "isothermality",
-#                        "t_seas", 'max_t_warm_m','min_t_cold_m', "t_ann_range",
-#                        'mean_t_wet_q','mean_t_dry_q','mean_t_warm_q', 'mean_t_cold_q',
-#                        'ann_p', 'p_wet_m','p_dry_m','p_seas', 'p_wet_q','p_dry_q',
-#                        'p_warm_q','p_cold_q')
-# terra::writeRaster(x = wc_crop, file = "worldclim_named_rast.tiff", overwrite = TRUE) 
-
-
 ### Fire
-f_rast <- rast("variable_data/modisfire_named_rast.tiff")
 
-# fire_rast_na <- rast("modis_totalmean_30s.tif")
-# land_mask <- rasterize(se_vect, fire_rast_na[[1]], field = 1, background = NA)
-# mask_base <- rep(land_mask, nlyr(fire_rast_na))
-# fire_rast <- ifel(is.na(fire_rast_na) & !is.na(mask_base), 0, fire_rast_na)
-# f_crop <- mask(crop(fire_rast, aoi), aoi)
+
+fire_rast_na <- rast("modis_totalmean_30s_extended.tif")
+land_mask <- rasterize(se_vect, fire_rast_na[[1]], field = 1, background = NA)
+mask_base <- rep(land_mask, nlyr(fire_rast_na))
+fire_rast <- ifel(is.na(fire_rast_na) & !is.na(mask_base), 0, fire_rast_na)
+f_crop <- mask(crop(fire_rast, aoi), aoi)
 # 
-# names(f_crop) <- c("f_intensity", "f_freq", "f_seas")
-# terra::writeRaster(x = f_crop, file = "modisfire_named_rast.tiff")
+names(f_crop) <- c("f_intensity", "f_freq", "f_seas")
+terra::writeRaster(x = f_crop, file = "modisfire_named_rast.tiff")
+
+f_rast <- rast("modisfire_named_rast.tiff")
+
+
+### Worldclim
+files <- list.files("worldclim_data", pattern = "\\.tif$", full.names = TRUE)
+files <- files[order(as.numeric(sub(".*bio_([0-9]+)\\.tif$", "\\1", files)))]
+wc_rast <- rast(files)
+ 
+wc_crop <- resample(x = wc_rast, y = f_rast)
+ 
+wc_crop[[c(1:2,5:11)]] <- wc_crop[[c(1:2,5:11)]]/10
+wc_crop[[3:4]] <- wc_crop[[3:4]]/100
+ 
+names(wc_crop) <- c("mean_ann_t","mean_diurnal_t_range", "isothermality",
+                        "t_seas", 'max_t_warm_m','min_t_cold_m', "t_ann_range",
+                        'mean_t_wet_q','mean_t_dry_q','mean_t_warm_q', 'mean_t_cold_q',
+                        'ann_p', 'p_wet_m','p_dry_m','p_seas', 'p_wet_q','p_dry_q',
+                        'p_warm_q','p_cold_q')
+
+terra::writeRaster(x = wc_crop, file = "worldclim_named_rast.tiff", overwrite = TRUE) 
+
+wc_rast <- rast("worldclim_named_rast.tiff")
+
+
 
 
 ### Soil
-s_rast <- rast("variable_data/soil_named_rast.tiff")
+s_rast <- rast("SE_soil_data_30s.tiff")
+ 
+s_crop <- resample(x = s_rast, y = wc_rast)
+ 
+names(s_rast) <- c("clay_0_5cm", "clay_5_15cm", "clay_15_30cm", "nitrogen_0_5cm",
+                       "nitrogen_5_15cm", "nitrogen_15_30cm", "ocd_0_5cm", "ocd_5_15cm",
+                       "ocd_15_30cm", "soc_0_5cm", "soc_5_15cm", "soc_15_30cm",
+                       "phh2o_0_5cm", "phh2o_5_15cm", "phh2o_15_30cm", "sand_0_5cm",
+                       "sand_5_15cm", "sand_15_30cm", "silt_0_5cm", "silt_5_15cm",
+                       "silt_15_30cm")
+ 
+terra::writeRaster(x = s_crop, file = "soil_named_rast.tiff", overwrite = TRUE)
 
-# s_rast <- rast("SE_soil_data_30s.tiff")
-# 
-# s_crop <- resample(x = s_rast, y = wc_rast)
-# 
-# names(s_rast) <- c("clay_0_5cm", "clay_5_15cm", "clay_15_30cm", "nitrogen_0_5cm",
-#                       "nitrogen_5_15cm", "nitrogen_15_30cm", "ocd_0_5cm", "ocd_5_15cm",
-#                       "ocd_15_30cm", "soc_0_5cm", "soc_5_15cm", "soc_15_30cm",
-#                       "phh2o_0_5cm", "phh2o_5_15cm", "phh2o_15_30cm", "sand_0_5cm",
-#                       "sand_5_15cm", "sand_15_30cm", "silt_0_5cm", "silt_5_15cm",
-#                       "silt_15_30cm")
-# 
-# terra::writeRaster(x = s_crop, file = "soil_named_rast.tiff", overwrite = TRUE)
+s_rast <- rast("soil_named_rast.tiff")
 
-
+###
 covariates <- c(wc_rast, f_rast, s_rast)
 
 names(covariates) <- c("mean_ann_t","mean_diurnal_t_range", "isothermality",
@@ -284,10 +282,10 @@ paste0('Testing TSS: ', round(SDMtune::tss(rf_sbcv, test = TRUE),2))
   # returned 0.64
   
 # Receiver operator characteristics for each curve
-source('C:/Users/emars/Desktop/intro to spatial data in R/Intro_to_spatial-main/scripts/functions/extract_roc_vals.R')
-spec_sens_val <- extract_spec_sens_vals(rf_sbcv, spat_blocks2, SWDdata)
-auc_vals <- extract_auc_vals(rf_sbcv, spat_blocks2, SWDdata)
-auc_vals$label <- paste0(auc_vals$model_no, ": ", round(auc_vals$auc,2))
+#source('extract_roc_vals.R')
+#spec_sens_val <- extract_spec_sens_vals(rf_sbcv, spat_blocks2, SWDdata)
+#auc_vals <- extract_auc_vals(rf_sbcv, spat_blocks2, SWDdata)
+#auc_vals$label <- paste0(auc_vals$model_no, ": ", round(auc_vals$auc,2))
     
     
 # ggplot(data = spec_sens_val) +
@@ -324,6 +322,7 @@ plotResponse(rf_sbcv, var = "clay_15_30cm", marginal = TRUE, rug = TRUE) + labs(
 ### model prediction
 pred_stricta <- predict(rf_sbcv, data = cov_clean)
 # saveRDS(pred_stricta, file = "a_stricta_prediction.RData")
+terra::writeRaster(pred_stricta,"A_stricta_prediction.tif")
 
 pred_df <- as.data.frame(pred_stricta, xy = TRUE) 
 
